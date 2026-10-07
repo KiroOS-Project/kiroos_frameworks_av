@@ -468,11 +468,21 @@ audio_devices_t Engine::getDeviceForStrategyInt(routing_strategy strategy,
             break;
         }
 
+        // KiroOS: while the screen recorder captures the internal audio it sets
+        // sys.kiroos.rec.local=1, and the remote submix gets a copy of the media instead of all
+        // of it: the phone keeps playing (the duplicated output of the submix and the primary
+        // output). Only for the devices of the primary output; Bluetooth or USB audio still
+        // moves to the submix alone.
+        uint32_t kiroSubmix = AUDIO_DEVICE_NONE;
         if (strategy != STRATEGY_SONIFICATION) {
             // no sonification on remote submix (e.g. WFD)
             if (availableOutputDevices.getDevice(AUDIO_DEVICE_OUT_REMOTE_SUBMIX,
                                                  String8("0")) != 0) {
                 device2 = availableOutputDevices.types() & AUDIO_DEVICE_OUT_REMOTE_SUBMIX;
+                if (property_get_bool("sys.kiroos.rec.local", false)) {
+                    kiroSubmix = device2;
+                    device2 = AUDIO_DEVICE_NONE;
+                }
             }
         }
         if (isInCall() && (strategy == STRATEGY_MEDIA)) {
@@ -542,6 +552,12 @@ audio_devices_t Engine::getDeviceForStrategyInt(routing_strategy strategy,
         }
 
         device2 |= device3;
+        if (kiroSubmix != AUDIO_DEVICE_NONE) {
+            const uint32_t primaryDevices = AUDIO_DEVICE_OUT_SPEAKER | AUDIO_DEVICE_OUT_EARPIECE |
+                    AUDIO_DEVICE_OUT_WIRED_HEADSET | AUDIO_DEVICE_OUT_WIRED_HEADPHONE;
+            device2 = (device2 != AUDIO_DEVICE_NONE && (device2 & ~primaryDevices) == 0)
+                    ? (device2 | kiroSubmix) : kiroSubmix;
+        }
         // device is DEVICE_OUT_SPEAKER if we come from case STRATEGY_SONIFICATION or
         // STRATEGY_ENFORCED_AUDIBLE, AUDIO_DEVICE_NONE otherwise
         device |= device2;
